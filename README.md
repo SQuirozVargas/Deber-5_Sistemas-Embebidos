@@ -17,7 +17,7 @@ con FreeRTOS sobre el microcontrolador ESP32.
 - Enlace del ejercicio 1: https://wokwi.com/projects/471199744503740417
 - Enlace del ejercicio 2: https://wokwi.com/projects/471200832395098113
 - Enlace del ejercicio 3: https://wokwi.com/projects/471201654473482241
-- Video de Youtube: 
+- Video de Youtube: https://youtu.be/kuNR116xm48
 
 # Ejercicio 1
 # Comunicación Serial Avanzada con UART2 (ESP-IDF)
