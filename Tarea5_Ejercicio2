@@ -1,0 +1,59 @@
+/*
+ * TAREA #5 - SISTEMAS EMBEBIDOS
+ * EJERCICIO 2 - Sistema Multitarea con FreeRTOS 
+ *
+ * Tres tareas concurrentes con prioridades diferentes:
+ *   Tarea 1 - prioridad 3: lee un sensor virtual cada 1 s
+ *   Tarea 2 - prioridad 2: parpadea un LED cada 500 ms
+ *   Tarea 3 - prioridad 1: reporta el estado al monitor cada 2 s
+ */
+
+#define LED_PIN 2
+
+// Variable compartida: valor del "sensor" virtual
+volatile int valorSensor = 0;
+
+// -------- Tarea 1: lectura periodica de un sensor virtual --------
+void TareaSensor(void *param) {
+  while (1) {
+    // Simula la lectura de un sensor (valor pseudoaleatorio)
+    valorSensor = random(0, 100);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);  // cada 1 segundo
+  }
+}
+
+// -------- Tarea 2: parpadeo de LED a cierta frecuencia --------
+void TareaLED(void *param) {
+  while (1) {
+    digitalWrite(LED_PIN, HIGH);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    digitalWrite(LED_PIN, LOW);
+    vTaskDelay(500 / portTICK_PERIOD_MS);  // parpadeo cada 500 ms
+  }
+}
+
+// -------- Tarea 3: envio periodico de info al monitor serial --------
+void TareaReporte(void *param) {
+  while (1) {
+    Serial.print("[REPORTE] Valor del sensor: ");
+    Serial.println(valorSensor);
+    vTaskDelay(2000 / portTICK_PERIOD_MS);  // cada 2 segundos
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+
+  Serial.println("=== Sistema Multitarea FreeRTOS iniciado ===");
+
+  // Crea las tres tareas con PRIORIDADES DIFERENTES
+  xTaskCreate(TareaSensor,  "Sensor",  2048, NULL, 3, NULL);  // prioridad 3
+  xTaskCreate(TareaLED,     "LED",     2048, NULL, 2, NULL);  // prioridad 2
+  xTaskCreate(TareaReporte, "Reporte", 2048, NULL, 1, NULL);  // prioridad 1
+}
+
+void loop() {
+  // El loop queda vacio: FreeRTOS gestiona todo mediante las tareas.
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
