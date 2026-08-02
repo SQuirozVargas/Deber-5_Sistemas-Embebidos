@@ -2,13 +2,12 @@
 
 Nombre: Saúl Alejandro Quiroz Vargas
 Materia: Sistemas Embebido
-Paralelo 1:
+Paralelo: 1
 
 Este repositorio contiene los tres ejercicios de la Tarea #5, enfocados en la
 comunicación serial UART, el protocolo I2C y la ejecución concurrente de tareas
 con FreeRTOS sobre el microcontrolador ESP32.
 
----
 
 ## Índice
 - Ejercicio 1 - Comunicación Serial con UART2
@@ -18,6 +17,7 @@ con FreeRTOS sobre el microcontrolador ESP32.
 - Enlace del ejercicio 1: https://wokwi.com/projects/471199744503740417
 - Enlace del ejercicio 2: https://wokwi.com/projects/471200832395098113
 - Enlace del ejercicio 3: https://wokwi.com/projects/471201654473482241
+- Video de Youtube: 
 
 # Ejercicio 1
 # Comunicación Serial Avanzada con UART2 (ESP-IDF)
