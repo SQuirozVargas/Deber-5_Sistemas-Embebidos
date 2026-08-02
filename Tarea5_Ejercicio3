@@ -1,0 +1,166 @@
+/*
+ * TAREA #5 - SISTEMAS EMBEBIDOS 
+ * EJERCICIO 3 - Sistema Integrado UART + FreeRTOS + I2C (OLED)
+ *
+ * Integra:
+ *   - UART: recibe comandos (led on / led off / status)
+ *   - FreeRTOS: varias tareas concurrentes
+ *   - Cola (Queue): comunica la tarea de UART con la de control
+ *   - OLED SSD1306 (I2C): grafico de linea de tiempo de las tareas
+ */
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR 0x3C
+#define LED_PIN 2
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// Cola para pasar comandos desde la tarea UART a la tarea de control
+QueueHandle_t colaComandos;
+
+// Variables de estado compartidas
+volatile bool ledState = false;
+volatile int  contadorComandos = 0;
+
+// Historial de actividad de cada tarea para el grafico (1 = activa)
+#define HIST_LEN 128
+uint8_t histTarea1[HIST_LEN];  // Tarea Control
+uint8_t histTarea2[HIST_LEN];  // Tarea Sensor
+volatile int histIndex = 0;
+
+// -------- Tarea 1: recibe comandos por UART --------
+void TareaUART(void *param) {
+  char buffer[32];
+  int idx = 0;
+  while (1) {
+    while (Serial.available() > 0) {
+      char c = Serial.read();
+      if (c == '\n' || c == '\r') {
+        if (idx > 0) {
+          buffer[idx] = '\0';
+          // Envia el comando a la cola
+          xQueueSend(colaComandos, buffer, portMAX_DELAY);
+          idx = 0;
+        }
+      } else if (idx < 31) {
+        buffer[idx++] = c;
+      }
+    }
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+  }
+}
+
+// -------- Tarea 2: procesa comandos recibidos de la cola --------
+void TareaControl(void *param) {
+  char comando[32];
+  while (1) {
+    // Espera un comando de la cola (bloqueante hasta que llegue)
+    if (xQueueReceive(colaComandos, comando, portMAX_DELAY) == pdTRUE) {
+      histTarea1[histIndex % HIST_LEN] = 1;  // marca actividad
+      contadorComandos++;
+
+      if (strcmp(comando, "led on") == 0) {
+        ledState = true;
+        digitalWrite(LED_PIN, HIGH);
+        Serial.println("[LED] Encendido");
+      } else if (strcmp(comando, "led off") == 0) {
+        ledState = false;
+        digitalWrite(LED_PIN, LOW);
+        Serial.println("[LED] Apagado");
+      } else if (strcmp(comando, "status") == 0) {
+        Serial.print("[STATUS] LED: ");
+        Serial.print(ledState ? "ON" : "OFF");
+        Serial.print(" | Comandos: ");
+        Serial.println(contadorComandos);
+      } else {
+        Serial.print("[ERROR] Comando desconocido: ");
+        Serial.println(comando);
+      }
+    }
+  }
+}
+
+// -------- Tarea 3: sensor virtual periodico --------
+void TareaSensor(void *param) {
+  while (1) {
+    histTarea2[histIndex % HIST_LEN] = 1;  // marca actividad
+    // Simula lectura de sensor
+    int lectura = random(0, 100);
+    (void)lectura;
+    vTaskDelay(800 / portTICK_PERIOD_MS);
+  }
+}
+
+// -------- Tarea 4: actualiza el grafico en la OLED --------
+void TareaDisplay(void *param) {
+  while (1) {
+    display.clearDisplay();
+
+    // Titulo
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 0);
+    display.println("Linea de tiempo tareas");
+
+    // Etiquetas
+    display.setCursor(0, 20);
+    display.print("T1");
+    display.setCursor(0, 40);
+    display.print("T2");
+
+    // Dibuja las lineas de tiempo de cada tarea
+    for (int x = 0; x < HIST_LEN - 20; x++) {
+      int i = (histIndex + x) % HIST_LEN;
+      if (histTarea1[i]) display.drawPixel(x + 20, 22, SSD1306_WHITE);
+      if (histTarea2[i]) display.drawPixel(x + 20, 42, SSD1306_WHITE);
+    }
+
+    // Linea base del eje de tiempo
+    display.drawLine(20, 55, 127, 55, SSD1306_WHITE);
+    display.setCursor(20, 56);
+    display.print("tiempo ->");
+
+    display.display();
+
+    // Avanza el historial (desplaza la ventana de tiempo)
+    histIndex++;
+    histTarea1[histIndex % HIST_LEN] = 0;
+    histTarea2[histIndex % HIST_LEN] = 0;
+
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+
+  // Inicializa la OLED
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("Error: no se encontro la OLED");
+    while (1);
+  }
+  display.clearDisplay();
+  display.display();
+
+  // Crea la cola (hasta 5 comandos de 32 bytes)
+  colaComandos = xQueueCreate(5, 32);
+
+  Serial.println("=== Sistema Integrado UART+FreeRTOS+I2C iniciado ===");
+  Serial.println("Comandos: led on | led off | status");
+
+  // Crea las tareas con prioridades diferentes
+  xTaskCreate(TareaUART,    "UART",    2048, NULL, 3, NULL);
+  xTaskCreate(TareaControl, "Control", 2048, NULL, 2, NULL);
+  xTaskCreate(TareaSensor,  "Sensor",  2048, NULL, 1, NULL);
+  xTaskCreate(TareaDisplay, "Display", 4096, NULL, 1, NULL);
+}
+
+void loop() {
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+}
