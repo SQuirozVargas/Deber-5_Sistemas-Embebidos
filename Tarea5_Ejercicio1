@@ -1,0 +1,145 @@
+/*
+ * TAREA #5 - SISTEMAS EMBEBIDO
+ * EJERCICIO 1 - Comunicacion Serial Avanzada con UART2 (ESP-IDF)
+ *
+ * Inicializa UART2 mediante drivers nativos ESP-IDF, recibe comandos, los interpreta,
+ * ejecuta acciones y responde por UART2. Ademas refleja las respuestas por el
+ * monitor estandar (printf) para poder demostrarlo en Wokwi.
+ *
+ * Comandos: status | led on | led off | info | reset
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_log.h"
+
+#define UART_PORT        UART_NUM_2      // Uso EXCLUSIVO de UART2 
+#define UART_TX_PIN      17              // TX2 -> GPIO17
+#define UART_RX_PIN      16              // RX2 -> GPIO16
+#define UART_BAUD_RATE   115200          // Baud rate configurable
+#define UART_BUF_SIZE    1024            // Tamano del buffer RX/TX
+#define CMD_MAX_LEN      128             // Largo maximo de un comando
+#define LED_GPIO         2               // LED integrado de la ESP32 DevKit
+
+static const char *TAG = "UART2_CMD";
+
+static bool     led_state       = false;
+static uint32_t command_counter = 0;
+
+static void uart2_init(void);
+static void responder(const char *msg);
+static void process_command(char *cmd);
+static void reset_internal_state(void);
+
+// Inicializa el driver de UART2 (drivers nativos ESP-IDF)
+static void uart2_init(void)
+{
+    uart_config_t uart_config = {
+        .baud_rate = UART_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    uart_driver_install(UART_PORT, UART_BUF_SIZE, UART_BUF_SIZE, 0, NULL, 0);
+    uart_param_config(UART_PORT, &uart_config);
+    uart_set_pin(UART_PORT, UART_TX_PIN, UART_RX_PIN,
+                 UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+}
+
+// Responde por UART2 (requisito) y refleja en el monitor con printf
+static void responder(const char *msg)
+{
+    uart_write_bytes(UART_PORT, msg, strlen(msg));
+    printf("%s", msg);
+}
+
+// Reinicia variables internas. No reinicia el micro.
+static void reset_internal_state(void)
+{
+    led_state       = false;
+    command_counter = 0;
+    gpio_set_level(LED_GPIO, 0);
+}
+
+// Interpreta el comando recibido
+static void process_command(char *cmd)
+{
+    char response[256];
+    command_counter++;
+
+    if (strcmp(cmd, "status") == 0) {
+        snprintf(response, sizeof(response),
+                 "[STATUS] Sistema OK | LED: %s | Comandos: %lu\r\n",
+                 led_state ? "ON" : "OFF", (unsigned long)command_counter);
+        responder(response);
+
+    } else if (strcmp(cmd, "led on") == 0) {
+        led_state = true;
+        gpio_set_level(LED_GPIO, 1);
+        responder("[LED] Encendido\r\n");
+
+    } else if (strcmp(cmd, "led off") == 0) {
+        led_state = false;
+        gpio_set_level(LED_GPIO, 0);
+        responder("[LED] Apagado\r\n");
+
+    } else if (strcmp(cmd, "info") == 0) {
+        snprintf(response, sizeof(response),
+                 "[INFO] Puerto: UART2 | Baud: %d | Comandos: %lu\r\n",
+                 UART_BAUD_RATE, (unsigned long)command_counter);
+        responder(response);
+
+    } else if (strcmp(cmd, "reset") == 0) {
+        reset_internal_state();
+        responder("[RESET] Variables internas reiniciadas\r\n");
+
+    } else {
+        command_counter--;
+        snprintf(response, sizeof(response),
+                 "[ERROR] Comando desconocido: '%s'\r\n", cmd);
+        responder(response);
+    }
+}
+
+void app_main(void)
+{
+    gpio_reset_pin(LED_GPIO);
+    gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_GPIO, 0);
+
+    uart2_init();
+
+    ESP_LOGI(TAG, "Sistema de comandos UART2 iniciado (baud %d)", UART_BAUD_RATE);
+    responder("\r\n=== Sistema de comandos UART2 listo ===\r\n");
+    responder("Comandos: status | led on | led off | info | reset\r\n");
+
+    char cmd_buffer[CMD_MAX_LEN];
+    int  cmd_index = 0;
+
+    while (1) {
+        // Lectura NO bloqueante desde el monitor: getchar() devuelve EOF
+        // (sin bloquear) cuando no hay datos disponibles.
+        int ch = getchar();
+
+        if (ch != EOF) {
+            char c = (char)ch;
+            if (c == '\n' || c == '\r') {
+                if (cmd_index > 0) {
+                    cmd_buffer[cmd_index] = '\0';
+                    process_command(cmd_buffer);
+                    cmd_index = 0;
+                }
+            } else if (cmd_index < CMD_MAX_LEN - 1) {
+                cmd_buffer[cmd_index++] = c;
+            }
+        }
+
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+}
